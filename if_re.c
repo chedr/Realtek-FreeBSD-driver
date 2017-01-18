@@ -61,6 +61,7 @@ __FBSDID("$FreeBSD: src/sys/dev/re/if_re.c,v 1.92 " __DATE__ " " __TIME__ "  wpa
 #include <net/ethernet.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
+#include <net/if_var.h>
 
 #include <net/bpf.h>
 
@@ -720,7 +721,7 @@ static int re_alloc_buf(struct re_softc *sc)
         else
                 size =MJUM9BYTES;
         for (i = 0; i < RE_RX_BUF_NUM; i++) {
-                sc->re_desc.rx_buf[i] = m_getjcl(M_DONTWAIT, MT_DATA, M_PKTHDR, size);
+                sc->re_desc.rx_buf[i] = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, size);
                 if (!sc->re_desc.rx_buf[i]) {
                         //device_printf(dev, "m_getcl fail!!!\n");
                         error = ENXIO;
@@ -5432,7 +5433,7 @@ static int re_encap(struct re_softc *sc,struct mbuf *m_head)
 {
         struct mbuf		*m_new = NULL;
 
-        m_new = m_defrag(m_head, M_DONTWAIT);
+        m_new = m_defrag(m_head, M_NOWAIT);
 
         if (m_new == NULL) {
                 printf("re%d: no memory for tx list", sc->re_unit);
@@ -5576,7 +5577,7 @@ static void re_txeof(struct re_softc *sc)  	/* Transmit OK/ERR handler */
 
                 sc->re_desc.tx_last_index = (sc->re_desc.tx_last_index+1)%RE_TX_BUF_NUM;
                 txptr=&sc->re_desc.tx_desc[sc->re_desc.tx_last_index];
-                ifp->if_opackets++;
+                if_inc_counter(ifp,IFCOUNTER_OPACKETS,1);
                 ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
         }
 
@@ -5645,7 +5646,7 @@ struct re_softc		*sc;
                 }
                 opts2 = le32toh(rxptr->ul[1]);
 
-                //buf = m_getcl(M_DONTWAIT, MT_DATA, M_PKTHDR); /* Alloc a new mbuf */
+                //buf = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR); /* Alloc a new mbuf */
 
                 if (sc->re_rx_mbuf_sz <= MCLBYTES)
                         size = MCLBYTES;
@@ -5654,7 +5655,7 @@ struct re_softc		*sc;
                 else
                         size = MJUM9BYTES;
 
-                buf = m_getjcl(M_DONTWAIT, MT_DATA, M_PKTHDR, size);
+                buf = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, size);
                 if (buf==NULL) {
                         bError=1;
                         goto update_desc;
@@ -5719,7 +5720,7 @@ struct re_softc		*sc;
                 }
 
                 eh = mtod(m, struct ether_header *);
-                ifp->if_ipackets++;
+                if_inc_counter(ifp,IFCOUNTER_IPACKETS,1);
 #ifdef _DEBUG_
                 printf("Rcv Packet, Len=%d \n", m->m_len);
 #endif
@@ -5794,7 +5795,7 @@ static int re_intr(void *arg)  	/* Interrupt Handler */
 #if OS_VER < VERSION(7,0)
         re_int_task(arg, 0);
 #else
-        taskqueue_enqueue_fast(taskqueue_fast, &sc->re_inttask);
+        taskqueue_enqueue(taskqueue_fast, &sc->re_inttask);
 
         return (FILTER_HANDLED);
 #endif
@@ -5874,7 +5875,7 @@ static void re_int_task(void *arg, int npending)
 
 #if OS_VER>=VERSION(7,0)
         if (CSR_READ_2(sc, RE_ISR) & RE_INTRS) {
-                taskqueue_enqueue_fast(taskqueue_fast, &sc->re_inttask);
+                taskqueue_enqueue(taskqueue_fast, &sc->re_inttask);
                 return;
         }
 #endif
